@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>2026 State Tax Search Engine</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 650px;
+        margin: 40px auto;
+        padding: 0 15px;
+      }
+      input[type='text'] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 12px;
+        font-size: 16px;
+        margin-bottom: 12px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: center;
+        margin-bottom: 15px;
+        font-size: 15px;
+        background: #f8f9fa;
+        padding: 10px 14px;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+      }
+      .controls label {
+        cursor: pointer;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      select {
+        padding: 6px 10px;
+        font-size: 15px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        cursor: pointer;
+      }
+      .card {
+        border: 1px solid #ddd;
+        padding: 14px;
+        margin-top: 10px;
+        border-radius: 6px;
+        transition: background-color 0.2s, border-color 0.2s;
+      }
+      .card h3 {
+        margin: 0 0 8px 0;
+      }
+      .card p {
+        margin: 4px 0;
+      }
+      .rate-grid {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h2 id="pageTitle">
+      2026 State Income Tax Search (last updated November 2026)
+    </h2>
+    <input
+      type="text"
+      id="searchBox"
+      placeholder="Search by state (e.g., Washington, OR) or keyword..."
+      onkeyup="search()"
+    />
+
+    <div class="controls">
+      <label>
+        <strong>Dataset:</strong>
+        <select id="taxType" onchange="loadDataset()">
+          <option value="income">Income Tax (income-taxes.json)</option>
+          <option value="sales">Sales Tax (sales-taxes.json)</option>
+        </select>
+      </label>
+
+      <label>
+        <input type="checkbox" id="colorToggle" checked onchange="search()" />
+        Color-code boxes (Green = Low → Red = High)
+      </label>
+    </div>
+
+    <div id="results">Loading database...</div>
+
+    <script>
+      let database = [];
+      let currentMode = 'income';
+
+      // Load the initial dataset when the page opens
+      loadDataset();
+
+      async function loadDataset() {
+        currentMode = document.getElementById('taxType').value;
+        const resultsDiv = document.getElementById('results');
+        const titleEl = document.getElementById('pageTitle');
+
+        // Pick which JSON file to fetch based on the dropdown setting
+        const fileName =
+          currentMode === 'income'
+            ? './income-taxes.json'
+            : './sales-taxes.json';
+        titleEl.innerText =
+          currentMode === 'income'
+            ? '2026 State Income Tax Search'
+            : '2026 State Sales Tax Search';
+
+        resultsDiv.innerHTML = 'Loading data...';
+
+        try {
+          const res = await fetch(fileName);
+          if (!res.ok) throw new Error(`Could not load ${fileName}`);
+          database = await res.json();
+          search();
+        } catch (error) {
+          resultsDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+      }
+
+      // Scales Green (120°) to Red (0°) based on the max rate for each tax type
+      function getTaxColorStyle(rate, maxRate) {
+        const ratio = Math.min(Math.max(rate / maxRate, 0), 1);
+        const hue = Math.round(120 * (1 - ratio));
+        return `background-color: hsl(${hue}, 85%, 92%); border-color: hsl(${hue}, 70%, 75%);`;
+      }
+
+      function search() {
+        const query = document
+          .getElementById('searchBox')
+          .value.toLowerCase()
+          .trim();
+        const useColors = document.getElementById('colorToggle').checked;
+        const resultsDiv = document.getElementById('results');
+
+        const matches = database.filter(
+          (item) =>
+            item.state.toLowerCase().includes(query) ||
+            item.abbreviation.toLowerCase().includes(query) ||
+            item.notes.toLowerCase().includes(query)
+        );
+
+        if (matches.length === 0) {
+          resultsDiv.innerHTML = '<p>No matching states found.</p>';
+          return;
+        }
+
+        resultsDiv.innerHTML = matches
+          .map((item) => {
+            if (currentMode === 'income') {
+              const isWageFree = item.notes.includes('0% on wages');
+              const colorStyle = useColors
+                ? getTaxColorStyle(isWageFree ? 0 : item.topRate, 13.3)
+                : '';
+
+              return `
+            <div class="card" style="${colorStyle}">
+              <h3>${item.state} (${item.abbreviation})</h3>
+              <p><strong>Top Marginal Rate:</strong> ${item.topRateFormatted}</p>
+              <p><strong>Top Bracket Threshold:</strong> ${item.thresholdFormatted}</p>
+              <p><small>${item.notes}</small></p>
+            </div>
+          `;
+            } else {
+              // Colors Sales Tax cards using the state's Average Combined Rate (max ~10.11% in LA)
+              const colorStyle = useColors
+                ? getTaxColorStyle(item.averageRate, 10.11)
+                : '';
+
+              return `
+            <div class="card" style="${colorStyle}">
+              <h3>${item.state} (${item.abbreviation})</h3>
+              <div class="rate-grid">
+                <p><strong>Lowest (State Base):</strong> ${item.lowestRate}%</p>
+                <p><strong>Average Combined:</strong> ${item.averageRate}%</p>
+                <p><strong>Highest Combined:</strong> ${item.highestRate}%</p>
+              </div>
+              <p><small>${item.notes}</small></p>
+            </div>
+          `;
+            }
+          })
+          .join('');
+      }
+    </script>
+  </body>
+</html>
